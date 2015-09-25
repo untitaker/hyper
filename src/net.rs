@@ -1,12 +1,7 @@
 //! A collection of traits abstracting over Listeners and Streams.
-use std::any::{Any, TypeId};
-use std::fmt;
-use std::io::{self, ErrorKind, Read, Write};
-use std::net::{SocketAddr, ToSocketAddrs, Shutdown};
-//use std::net::{SocketAddr, ToSocketAddrs, TcpStream, TcpListener, Shutdown};
-use std::mem;
+use std::io::{self, Read, Write};
+use std::net::{SocketAddr, ToSocketAddrs};
 
-use eventual::{Future, Async};
 use mio::tcp::{TcpStream, TcpListener};
 use mio::{Evented, Selector, Token, EventSet, PollOpt, TryAccept};
 use tick::{Transport};
@@ -16,9 +11,6 @@ pub use self::openssl::Openssl;
 
 #[cfg(feature = "timeouts")]
 use std::time::Duration;
-
-use typeable::Typeable;
-use traitobject;
 
 /// The write-status indicating headers have not been written.
 pub enum Fresh {}
@@ -333,29 +325,6 @@ mod openssl {
                 },
                 Err(e) => Err(e.into())
             }
-        }
-    }
-
-    impl<S: NetworkStream> NetworkStream for SslStream<S> {
-        #[inline]
-        fn peer_addr(&mut self) -> io::Result<SocketAddr> {
-            self.get_mut().peer_addr()
-        }
-
-        #[cfg(feature = "timeouts")]
-        #[inline]
-        fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-            self.get_ref().set_read_timeout(dur)
-        }
-
-        #[cfg(feature = "timeouts")]
-        #[inline]
-        fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-            self.get_ref().set_write_timeout(dur)
-        }
-
-        fn close(&mut self, how: Shutdown) -> io::Result<()> {
-            self.get_mut().close(how)
         }
     }
 }

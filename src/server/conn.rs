@@ -1,9 +1,7 @@
-use std::io::Cursor;
 use std::sync::Arc;
 
 use httparse;
 
-use header;
 use http;
 use net;
 
@@ -31,7 +29,7 @@ impl<H: Handler> http::Handler for Conn<H> {
         self.handler.handle(request, response);
     }
 
-    fn on_body(&mut self, data: &[u8]) -> usize {
+    fn on_body(&mut self, _data: &[u8]) -> usize {
         0
     }
 }

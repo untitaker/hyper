@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 use std::io::{Write, BufWriter};
 
+use url::Url;
 use tick;
 use time::now_utc;
 
@@ -95,6 +96,72 @@ impl Transfer<http::Response, Fresh> {
     }
 }
 
+impl Transfer<http::Request, Fresh> {
+    pub fn start(mut self, method: Method, url: Url, headers: &mut Headers) -> Transfer<http::Request, Streaming> {
+ 
+        let mut uri = url.serialize_path().unwrap();
+        if let Some(ref q) = url.query {
+            uri.push('?');
+            uri.push_str(&q[..]);
+        }
+
+        let version = HttpVersion::Http11;
+        debug!("request line: {:?} {:?} {:?}", method, uri, version);
+        let _ = write!(&mut self.body, "{} {} {}\r\n", method, uri, version);
+
+        debug!("{:#?}", headers);
+        let body = match &method {
+            &Method::Get | &Method::Head => {
+                let _ = write!(&mut self.body, "{}\r\n", headers);
+                HttpWriter::EmptyWriter(self.body.into_inner())
+            },
+            _ => {
+                let mut chunked = true;
+                let mut len = 0;
+
+                match headers.get::<header::ContentLength>() {
+                    Some(cl) => {
+                        chunked = false;
+                        len = **cl;
+                    },
+                    None => ()
+                };
+
+                // can't do in match above, thanks borrowck
+                if chunked {
+                    let encodings = match headers.get_mut::<header::TransferEncoding>() {
+                        Some(encodings) => {
+                            //TODO: check if chunked is already in encodings. use HashSet?
+                            encodings.push(header::Encoding::Chunked);
+                            false
+                        },
+                        None => true
+                    };
+
+                    if encodings {
+                        headers.set(
+                            header::TransferEncoding(vec![header::Encoding::Chunked]))
+                    }
+                }
+
+                let _ = write!(&mut self.body, "{}\r\n", headers);
+
+                if chunked {
+                    HttpWriter::ChunkedWriter(self.body.into_inner())
+                } else {
+                    HttpWriter::SizedWriter(self.body.into_inner(), len)
+                }
+            }
+        };
+
+        Transfer {
+            body: body,
+            _type: PhantomData,
+            _state: PhantomData,
+        }
+    }
+}
+
 impl<T> Transfer<T, Streaming> {
     #[inline]
     pub fn write(&mut self, data: &[u8]) {
@@ -111,88 +178,6 @@ enum Body {
 /*
 const MAX_INVALID_RESPONSE_BYTES: usize = 1024 * 128;
 impl HttpMessage for Http11Message {
-    fn set_outgoing(&mut self, mut head: RequestHead) -> ::Result<RequestHead> {
-        let stream = match self.stream.take() {
-            Some(stream) => stream,
-            None => {
-                return Err(From::from(io::Error::new(
-                            io::ErrorKind::Other,
-                            "Message not idle, cannot start new outgoing")));
-            }
-        };
-        let mut stream = BufWriter::new(stream);
-
-        let mut uri = head.url.serialize_path().unwrap();
-        if let Some(ref q) = head.url.query {
-            uri.push('?');
-            uri.push_str(&q[..]);
-        }
-
-        let version = version::HttpVersion::Http11;
-        debug!("request line: {:?} {:?} {:?}", head.method, uri, version);
-        try!(write!(&mut stream, "{} {} {}{}",
-                    head.method, uri, version, LINE_ENDING));
-
-        let stream = {
-            let mut write_headers = |mut stream: BufWriter<Box<NetworkStream + Send>>, head: &RequestHead| {
-                debug!("headers={:?}", head.headers);
-                match write!(&mut stream, "{}{}", head.headers, LINE_ENDING) {
-                    Ok(_) => Ok(stream),
-                    Err(e) => {
-                        self.stream = Some(stream.into_inner().unwrap());
-                        Err(e)
-                    }
-                }
-            };
-            match &head.method {
-                &Method::Get | &Method::Head => {
-                    EmptyWriter(try!(write_headers(stream, &head)))
-                },
-                _ => {
-                    let mut chunked = true;
-                    let mut len = 0;
-
-                    match head.headers.get::<header::ContentLength>() {
-                        Some(cl) => {
-                            chunked = false;
-                            len = **cl;
-                        },
-                        None => ()
-                    };
-
-                    // can't do in match above, thanks borrowck
-                    if chunked {
-                        let encodings = match head.headers.get_mut::<header::TransferEncoding>() {
-                            Some(encodings) => {
-                                //TODO: check if chunked is already in encodings. use HashSet?
-                                encodings.push(header::Encoding::Chunked);
-                                false
-                            },
-                            None => true
-                        };
-
-                        if encodings {
-                            head.headers.set(
-                                header::TransferEncoding(vec![header::Encoding::Chunked]))
-                        }
-                    }
-
-                    let stream = try!(write_headers(stream, &head));
-
-                    if chunked {
-                        ChunkedWriter(stream)
-                    } else {
-                        SizedWriter(stream, len)
-                    }
-                }
-            }
-        };
-
-        self.writer = Some(stream);
-        self.method = Some(head.method.clone());
-
-        Ok(head)
-    }
 
     fn get_incoming(&mut self) -> ::Result<ResponseHead> {
         unimplemented!();

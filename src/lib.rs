@@ -186,8 +186,6 @@ macro_rules! inspect(
 #[cfg(test)]
 #[macro_use]
 mod mock;
-#[doc(hidden)]
-pub mod buffer;
 //pub mod client;
 pub mod error;
 pub mod method;

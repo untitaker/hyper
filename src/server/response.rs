@@ -4,10 +4,8 @@
 //! receiving a request.
 use std::any::{Any, TypeId};
 use std::mem;
-use std::io::{Write, BufWriter};
+use std::io::Write;
 use std::ptr;
-
-use time::now_utc;
 
 use header;
 use http;
@@ -125,7 +123,7 @@ impl Response<Fresh> {
 
     /// Consume this Response<Fresh>, writing the Headers and Status and
     /// creating a Response<Streaming>
-    pub fn start(mut self) -> Response<Streaming> {
+    pub fn start(self) -> Response<Streaming> {
         let (version, body, status, mut headers) = self.deconstruct();
         let body = body.start(version, status, &mut headers);
         Response {
@@ -152,6 +150,8 @@ impl Response<Streaming> {
     pub fn write(&mut self, data: &[u8]) {
         self.body.write(data)
     }
+
+    // pub fn drain(&mut self, callback: F) -> Future {}
 
     /// Asynchonously flushes all writing of a response to the client.
     #[inline]

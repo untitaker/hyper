@@ -2,14 +2,12 @@
 //!
 //! These are requests that a `hyper::Server` receives, and include its method,
 //! target URI, headers, and message body.
-use std::io::{Read, Cursor};
-use std::net::SocketAddr;
+//use std::net::SocketAddr;
 
-use version::{HttpVersion};
-use method::Method::{self, Get, Head};
-use header::{Headers, ContentLength, TransferEncoding};
+use version::HttpVersion;
+use method::Method;
+use header::Headers;
 use http::{IncomingRequest, Incoming};
-//use http::h1::HttpReader::{SizedReader, ChunkedReader, EmptyReader};
 use uri::RequestUri;
 
 /// A request bundles several parts of an incoming `NetworkStream`, given to a `Handler`.
@@ -60,80 +58,10 @@ impl Request {
         }
     }
 
-    /*
-    pub fn read(mut self) -> Future<(Vec<u8>, Request), (::Error, Request)> {
-        let (complete, future) = Future::pair();
-        self.stream.take().expect("Request Stream lost").receive(move |res| {
-            match res {
-                Ok(Some((vec, stream))) => {
-                    self.stream = Some(stream);
-                    complete.complete((vec, self))
-                },
-                Ok(None) => panic!("stream is empty?"),
-                Err(e) => if let Some(e) = e.take() {
-                    complete.fail((e, self))
-                }
-            }
-        });
-        future
-    }
+    // pub fn read(mut self) -> Future<Vec<u8>, ::Error> {}
 
+    // pub fn stream<S: Stream>(mut self, stream: S) {}
 
-    pub fn stream(mut self) -> ::eventual::Stream<Vec<u8>, ::Error> {
-        self.stream.take().expect("Request Stream lost")
-    }
-    */
-
-    /*
-    /// Get a reference to the underlying `NetworkStream`.
-    #[inline]
-    pub fn downcast_ref<T: Read>(&self) -> Option<&T> {
-        self.body.get_ref().downcast_ref()
-    }
-
-    /// Get a reference to the underlying Ssl stream, if connected
-    /// over HTTPS.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # extern crate hyper;
-    /// # #[cfg(feature = "openssl")]
-    /// extern crate openssl;
-    /// # #[cfg(feature = "openssl")]
-    /// use openssl::ssl::SslStream;
-    /// use hyper::net::HttpStream;
-    /// # fn main() {}
-    /// # #[cfg(feature = "openssl")]
-    /// # fn doc_ssl(req: hyper::server::Request) {
-    /// let maybe_ssl = req.ssl::<SslStream<HttpStream>>();
-    /// # }
-    /// ```
-    #[inline]
-    pub fn ssl<T: Read>(&self) -> Option<&T> {
-        use ::net::HttpsStream;
-        match self.downcast_ref() {
-            Some(&HttpsStream::Https(ref s)) => Some(s),
-            _ => None
-        }
-    }
-
-    /// Deconstruct a Request into its constituent parts.
-    #[inline]
-    pub fn deconstruct(self) -> (SocketAddr, Method, Headers,
-                                 RequestUri, HttpVersion,
-                                 HttpReader<&'s mut NetworkRead>) {
-        (self.remote_addr, self.method, self.headers,
-         self.uri, self.version, self.body)
-    }
-    */
-}
-
-fn read_buf<R: Read>(buf: &mut R, len: usize) -> ::Result<Vec<u8>> {
-    let mut v = vec![0; len];
-    let count = try!(buf.read(&mut v));
-    v.truncate(count);
-    Ok(v)
 }
 
 #[cfg(test)]

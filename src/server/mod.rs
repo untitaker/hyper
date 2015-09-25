@@ -116,7 +116,7 @@ use std::time::Duration;
 
 use num_cpus;
 
-use mio::{self, TryAccept};
+use mio::TryAccept;
 use tick::{Tick, Transport};
 
 pub use self::request::Request;
@@ -124,8 +124,7 @@ pub use self::response::Response;
 
 pub use net::{Fresh, Streaming};
 
-use Error;
-use header::{self, Headers};
+use header::Headers;
 use http;
 use method::Method;
 use net::{HttpsListener, Ssl, HttpsStream};

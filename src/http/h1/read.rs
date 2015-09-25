@@ -1,4 +1,3 @@
-use std::cmp;
 use std::fmt;
 use std::io::{self, Read};
 
@@ -97,7 +96,7 @@ impl<R: Read> Read for HttpReader<R> {
                 if *remaining == 0 {
                     Ok(0)
                 } else {
-                    let to_read = cmp::min(*remaining as usize, buf.len());
+                    let to_read = min(*remaining as usize, buf.len());
                     let num = try!(body.read(&mut buf[..to_read])) as u64;
                     trace!("Sized read: {}", num);
                     if num > *remaining {
@@ -128,7 +127,7 @@ impl<R: Read> Read for HttpReader<R> {
                     return Ok(0)
                 }
 
-                let to_read = cmp::min(rem as usize, buf.len());
+                let to_read = min(rem as usize, buf.len());
                 let count = try!(body.read(&mut buf[..to_read])) as u64;
 
                 if count == 0 {
@@ -198,9 +197,9 @@ fn read_chunk_size<R: Read>(rdr: &mut R) -> io::Result<u64> {
                 size *= radix;
                 size += (b + 10 - b'A') as u64;
             },
-            b'\r' => {
+            CR => {
                 match byte!(rdr) {
-                    b'\n' => break,
+                    LF => break,
                     _ => return Err(io::Error::new(io::ErrorKind::InvalidInput,
                                                   "Invalid chunk size line"))
 
