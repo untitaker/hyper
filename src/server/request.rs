@@ -4,10 +4,12 @@
 //! target URI, headers, and message body.
 //use std::net::SocketAddr;
 
+//use eventual::Future;
+
 use version::HttpVersion;
 use method::Method;
 use header::Headers;
-use http::{IncomingRequest, Incoming};
+use http::{IncomingRequest, Incoming, Stream};
 use uri::RequestUri;
 
 /// A request bundles several parts of an incoming `NetworkStream`, given to a `Handler`.
@@ -24,30 +26,17 @@ pub struct Request {
     /// The version of HTTP for this request.
     pub version: HttpVersion,
 
-    //stream: Option<::eventual::Stream<Vec<u8>, ::Error>>
+    stream: Stream,
 }
 
 
 impl Request {
     /// Create a new Request, reading the StartLine and Headers so they are
     /// immediately useful.
-    pub fn new(incoming: IncomingRequest) -> Request {
+    pub fn new(incoming: IncomingRequest, stream: Stream) -> Request {
         let Incoming { version, subject: (method, uri), headers } = incoming;
         debug!("Request Line: {:?} {:?} {:?}", method, uri, version);
         debug!("{:#?}", headers);
-
-        /*
-        let body = if method == Get || method == Head {
-            EmptyReader(buf)
-        } else if let Some(&ContentLength(len)) = headers.get() {
-            SizedReader(buf, len)
-        } else if headers.has::<TransferEncoding>() {
-            todo!("check for Transfer-Encoding: chunked");
-            ChunkedReader(buf, None)
-        } else {
-            EmptyReader(buf)
-        };
-        */
 
         Request {
             //remote_addr: addr,
@@ -55,14 +44,56 @@ impl Request {
             uri: uri,
             headers: headers,
             version: version,
+            stream: stream,
         }
     }
 
-    // pub fn read(mut self) -> Future<Vec<u8>, ::Error> {}
+    /*
+    pub fn path(&self) -> Option<&str> {
+        match *self.uri {
+            RequestUri::AbsolutePath(ref s) => Some(s),
+            RequestUri::AbsoluteUri(ref url) => (),
+            _ => None
+        }
+    }
+    */
 
-    // pub fn stream<S: Stream>(mut self, stream: S) {}
+    /*
+    pub fn read(mut self) -> Future<(Option<Vec<u8>>, Request), ::Error> {
+        let (promise, future) = Future::pair();
+        let buf = vec![];
+        let mut env = Some((self, buf, promise));
+        env.as_mut().unwrap().0.stream.read(Box::new(move |res: ::Result<Option<&[u8]>>| {
+            let (req, mut buf, promise) = env.take().unwrap();
+            match res {
+                Ok(Some(data)) => {
+                    buf.extend(data);
+                    promise.complete((Some(buf), req));
+                },
+                Ok(None) => {
+                    promise.complete((None, req));
+                }
+                Err(e) => {
+                    promise.fail(e);
+                }
+            }
+            false
+        }));
+        future
+    }
+    */
 
+    pub fn stream<S: ::http::Read + Send + 'static>(mut self, stream: S) {
+        self.stream.read(Box::new(stream));
+    }
 }
+
+/*
+pub struct Streaming {
+    request: Request
+}
+*/
+
 
 #[cfg(test)]
 mod tests {

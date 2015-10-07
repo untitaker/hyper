@@ -13,10 +13,9 @@ keywords = ["http", "hyper", "hyperium"]
 
 [dependencies]
 httparse = "0.1"
-language-tags = "0.0.7"
+language-tags = "0.1"
 log = "0.3"
 mime = "0.1"
-mio = "0.4"
 num_cpus = "0.2"
 rustc-serialize = "0.3"
 time = "0.1"
@@ -31,6 +30,9 @@ default-features = false
 
 [dependencies.eventual]
 git = "https://github.com/carllerche/eventual"
+
+[dependencies.mio]
+git = "https://github.com/carllerche/mio"
 
 [dependencies.tick]
 git = "https://github.com/seanmonstar/tick"

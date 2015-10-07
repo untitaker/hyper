@@ -20,16 +20,12 @@ impl<H: Handler> Conn<H> {
 }
 
 impl<H: Handler> http::Handler for Conn<H> {
-    type Parse = httparse::Request<'static, 'static>;
-    type Type = http::Response;
+    type Incoming = httparse::Request<'static, 'static>;
+    type Outgoing = http::Response;
 
-    fn on_incoming(&mut self, incoming: http::IncomingRequest, transfer: http::Transfer<http::Response, net::Fresh>) {
-        let request = Request::new(incoming);
+    fn on_incoming(&mut self, incoming: http::IncomingRequest, stream: http::Stream,  transfer: http::Transfer<http::Response, net::Fresh>) {
+        let request = Request::new(incoming, stream);
         let response = Response::new(transfer);
         self.handler.handle(request, response);
-    }
-
-    fn on_body(&mut self, _data: &[u8]) -> usize {
-        0
     }
 }

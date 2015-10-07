@@ -3,7 +3,6 @@ extern crate hyper;
 extern crate env_logger;
 
 extern crate eventual;
-use eventual::Async;
 
 use hyper::{Get, Post};
 use hyper::header::ContentLength;
@@ -33,12 +32,24 @@ fn echo(req: Request, mut res: Response) {
         res.headers_mut().set(*len);
     }
 
-    let mut res = res.start();
-    req.stream().each(move |data| {
-        println!("data: {:?}", data);
-        res.write(&data);
-    }).fire();
-    println!("handler end");
+    req.stream(Echo(res.start()));
+}
+
+struct Echo(hyper::server::Response<hyper::Streaming>);
+
+impl hyper::Read for Echo {
+    fn on_data(&mut self, data: &[u8]) {
+        println!("data {:?}", ::std::str::from_utf8(data));
+        self.0.write(data);
+    }
+
+    fn on_error(&mut self, error: hyper::Error) {
+        println!("error {:#?}", error);
+    }
+
+    fn on_eof(&mut self) {
+        println!("eof")
+    }
 }
 
 fn main() {

@@ -1,5 +1,8 @@
 //! Pieces pertaining to the HTTP message protocol.
 use std::borrow::Cow;
+use std::fmt;
+use std::marker::PhantomData;
+use std::sync::mpsc;
 
 use tick;
 
@@ -7,6 +10,7 @@ use header::Connection;
 use header::ConnectionOption::{KeepAlive, Close};
 use header::Headers;
 use method::Method;
+use net::{Streaming, Paused};
 use uri::RequestUri;
 use version::HttpVersion;
 use version::HttpVersion::{Http10, Http11};
@@ -15,8 +19,10 @@ use version::HttpVersion::{Http10, Http11};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub use self::conn::{Conn, Handler};
+pub use self::events::Read;
 
 pub mod conn;
+mod events;
 pub mod h1;
 //pub mod h2;
 
@@ -79,19 +85,61 @@ pub fn should_keep_alive(version: HttpVersion, headers: &Headers) -> bool {
     }
 }
 
-pub type LeasedTransfer = ::http::conn::Lease<::tick::Transfer>;
+pub struct Stream {
+    tx: mpsc::Sender<StreamState>,
+    transfer: ::tick::Transfer,
+    buf: Vec<u8>,
+}
+
+impl fmt::Debug for Stream {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("Stream")
+    }
+}
+
+enum StreamState {
+    Paused,
+    Reading(Box<Read + Send +'static>)
+}
+
+impl Stream {
+    fn new(tx: mpsc::Sender<StreamState>, transfer: ::tick::Transfer, buf: Vec<u8>) -> Stream {
+        Stream {
+            tx: tx,
+            transfer: transfer,
+            buf: buf,
+        }
+    }
+
+    pub fn read(&mut self, mut on_read: Box<Read + Send + 'static>) {
+        if !self.buf.is_empty() {
+            trace!("buffer not empty, on_data that first");
+            on_read.on_data(&self.buf);
+            self.buf.truncate(0);
+            on_read.on_eof();
+            return;
+        }
+        let _ = self.tx.send(StreamState::Reading(on_read));
+        let _ = self.transfer.resume();
+    }
+
+    pub fn pause(&mut self) {
+        let _ = self.tx.send(StreamState::Paused);
+        let _ = self.transfer.pause();
+    }
+}
 
 pub struct AsyncWriter {
-    transfer: LeasedTransfer,
+    transfer: ::tick::Transfer,
 }
 
 impl AsyncWriter {
-    pub fn new(transfer: LeasedTransfer) -> AsyncWriter {
+    pub fn new(transfer: ::tick::Transfer) -> AsyncWriter {
         AsyncWriter { transfer: transfer }
     }
 
     pub fn get_mut(&mut self) -> &mut tick::Transfer {
-        &mut *self.transfer
+        &mut self.transfer
     }
 }
 

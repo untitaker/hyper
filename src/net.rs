@@ -18,6 +18,9 @@ pub enum Fresh {}
 /// The write-status indicating headers have been written.
 pub enum Streaming {}
 
+/// dox
+pub enum Paused {}
+
 /// A connector creates a NetworkStream.
 pub trait NetworkConnector {
     /// Type of Stream to create
@@ -179,7 +182,7 @@ impl<S: Ssl> TryAccept for HttpsListener<S> {
     #[inline]
     fn accept(&self) -> io::Result<Option<S::Stream>> {
         self.listener.accept().and_then(|s| match s {
-            Some(s) => self.ssl.wrap_server(s).map(Some).map_err(|e| {
+            Some((s, _)) => self.ssl.wrap_server(s).map(Some).map_err(|e| {
                 match e {
                     ::Error::Io(e) => e,
                     _ => io::Error::new(io::ErrorKind::Other, e),

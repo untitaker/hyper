@@ -4,9 +4,8 @@ use std::io::{self, Read};
 use url::Url;
 
 use header;
-use net::NetworkStream;
-use http::{self, RawStatus, ResponseHead, HttpMessage};
-use http::h1::Http11Message;
+//use net::NetworkStream;
+use http::{self, RawStatus};
 use status;
 use version;
 
@@ -22,11 +21,11 @@ pub struct Response {
     /// The final URL of this response.
     pub url: Url,
     status_raw: RawStatus,
-    message: Box<HttpMessage>,
 }
 
 impl Response {
 
+    /*
     /// Creates a new response from a server.
     pub fn new(url: Url, stream: Box<NetworkStream + Send>) -> ::Result<Response> {
         trace!("Response::new");
@@ -56,6 +55,7 @@ impl Response {
             message: message,
         })
     }
+    */
 
     /// Get the raw status code and reason.
     #[inline]
@@ -64,19 +64,7 @@ impl Response {
     }
 }
 
-impl Read for Response {
-    #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self.message.read(buf) {
-            Err(e) => {
-                let _ = self.message.close_connection();
-                Err(e)
-            }
-            r => r
-        }
-    }
-}
-
+/*
 impl Drop for Response {
     fn drop(&mut self) {
         // if not drained, theres old bits in the Reader. we can't reuse this,
@@ -94,6 +82,7 @@ impl Drop for Response {
         }
     }
 }
+*/
 
 #[cfg(test)]
 mod tests {

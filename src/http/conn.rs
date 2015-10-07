@@ -10,20 +10,16 @@ use net::Fresh;
 const MAX_BUFFER_SIZE: usize = 8192 + 4096 * 100;
 
 pub struct Conn<H: Handler> {
-    transfer: Lend<tick::Transfer>,
+    transfer: tick::Transfer,
     state: State,
-    buffer: Cursor<Vec<u8>>,
     handler: H,
 }
-
-
 
 impl<H: Handler> Conn<H> {
     pub fn new(transfer: tick::Transfer, handler: H) -> Conn<H> {
         Conn {
-            transfer: Lend::Owned(transfer),
-            state: State::Parsing,
-            buffer: Cursor::new(Vec::with_capacity(4096)),
+            transfer: transfer,
+            state: State::Parsing(Vec::with_capacity(4096)),
             handler: handler,
         }
     }
@@ -31,129 +27,143 @@ impl<H: Handler> Conn<H> {
 
 impl<H: Handler> Protocol for Conn<H> {
     fn on_data(&mut self, data: &[u8]) {
-        if self.transfer.claim().is_some() {
-            self.state = State::Parsing;
-        }
-        match self.state {
-            State::Parsing => {
-                info!("on_data parse {}", data.len());
-                self.buffer.get_mut().extend(data);
-                match http::parse::<H::Parse, _>(self.buffer.get_ref()) {
+        let action = match self.state {
+            State::Parsing(ref mut buf) => {
+                buf.extend(data);
+                match http::parse::<H::Incoming, _>(buf) {
                     Ok(Some((incoming, len))) => {
-                        self.buffer.set_position(len as u64);
-                        let lease = self.transfer.lease();
-                        self.handler.on_incoming(incoming, http::h1::transfer(lease));
-                        self.state = State::Handling;
+                        trace!("parsed {} bytes out of {}", len, buf.len());
+                        let (tx, rx) = mpsc::channel();
+                        self.handler.on_incoming(
+                            incoming,
+                            http::Stream::new(
+                                tx,
+                                self.transfer.clone(),
+                                (&buf[len..]).to_vec() // TODO: ouch
+                            ),
+                            http::h1::transfer(self.transfer.clone())
+                        );
+                        Action::State(State::Http1(StreamRx {
+                            rx: rx,
+                            state: http::StreamState::Paused,
+                        })) //(h1::conn())
+
                     },
                     Ok(None) => {
-                        trace!("TODO: check MAX_LENGTH {}", self.buffer.get_ref().len());
+                        if buf.len() >= MAX_BUFFER_SIZE {
+                            //TODO: Handler.on_too_large_error()
+                            debug!("MAX_BUFFER_SIZE reached, closing");
+                            self.transfer.close();
+                            Action::State(State::Closed)
+                        } else {
+                            Action::Nothing
+                        }
                     },
                     Err(e) => {
-                        //TODO: match on error to send proper response
-                        //TODO: have Handler.on_parse_error() or something
-                        self.transfer.claim().expect("lost transfer").close();
-                        self.state = State::Closed;
+                        let h2_init = b"PRI * HTTP/2";
+                        if data.starts_with(h2_init) {
+                            trace!("HTTP/2 request!");
+                            //TODO: self.state = State::Http2(h2::conn());
+                            self.transfer.close();
+                            Action::State(State::Closed)
+                        } else {
+                            //TODO: match on error to send proper response
+                            //TODO: have Handler.on_parse_error() or something
+                            self.transfer.close();
+                            Action::State(State::Closed)
+                        }
                     }
-                };
-            }
-            State::Handling => {
-                info!("on_data handle {}", data.len());
-                let used = self.handler.on_body(data);
-                if data.len() > used {
-                    self.buffer.get_mut().truncate(0);
-                    self.buffer.set_position(0);
-                    self.buffer.get_mut().extend(&data[used..]);
-                    self.state = State::Parsing;
                 }
             },
-            State::Closed => unimplemented!()
+            State::Http1(ref mut stream) => { //(ref mut conn) => {
+                match stream.state() {
+                    Some(&mut http::StreamState::Reading(ref mut r)) => {
+                        r.on_data(data);
+                        Action::Nothing
+                    }
+                    Some(&mut http::StreamState::Paused) => {
+                        error!("on_data State::Http1::Paused");
+                        Action::Nothing
+                    }
+                    None => {
+                        // reader stopped caring?
+                        trace!("on_data State::Http1::Dropped");
+                        Action::OnData(State::Parsing(Vec::with_capacity(4096)))
+                    }
+                }
+                //conn.on_data(data);
+            },
+            /*
+            State::Http2(ref mut conn) => {
+                conn.on_data(data);
+            }
+            */
+            State::Closed => {
+                error!("Closed on_data");
+                Action::Nothing
+            }
+
+        };
+
+        match action {
+            Action::State(state) => self.state = state,
+            Action::OnData(state) => {
+                self.state = state;
+                self.on_data(data);
+            }
+            Action::Nothing => (),
         }
     }
+
+    fn on_eof(&mut self) {
+        trace!("unhandled eof");
+    }
+
+    fn on_end(&mut self, err: Option<::tick::Error>) {
+        trace!("unhandled end");
+        if let Some(err) = err {
+            error!("on_end err = {:?}", err);
+        }
+    }
+}
+
+enum Action {
+    State(State),
+    OnData(State),
+    Nothing
 }
 
 pub trait Handler {
-    type Parse: Parse;
-    type Type;
+    type Incoming: Parse;
+    type Outgoing;
+    //fn on_outgoing(&mut self, transfer: http::Transfer<Self::Outgoing, Fresh>);
     fn on_incoming(&mut self,
-                   incoming: Incoming<<Self::Parse as Parse>::Subject>,
-                   transfer: http::Transfer<Self::Type, Fresh>);
-
-    fn on_body(&mut self, data: &[u8]) -> usize;
+                   incoming: Incoming<<Self::Incoming as Parse>::Subject>,
+                   stream: http::Stream,
+                   transfer: http::Transfer<Self::Outgoing, Fresh>);
 }
 
 enum State {
-    Parsing,
-    Handling,
+    Parsing(Vec<u8>),
+    Http1(StreamRx), //(h1::Conn),
+    //Http2,
     Closed,
 }
 
-enum Lend<T> {
-    Owned(T),
-    Lent(mpsc::Receiver<T>)
+
+struct StreamRx {
+    rx: mpsc::Receiver<http::StreamState>,
+    state: http::StreamState,
 }
 
-impl<T> Lend<T> {
-    fn lease(&mut self) -> Lease<T> {
-        let (tx, rx) = mpsc::channel();
-        match ::std::mem::replace(self, Lend::Lent(rx)) {
-            Lend::Owned(t) => Lease::new(t, tx),
-            _ => panic!("already leased")
-        }
-    }
-
-    fn claim(&mut self) -> Option<&mut T> {
-        match *self {
-            Lend::Lent(ref rx) => {
-                rx.try_recv().ok()
+impl StreamRx {
+    fn state(&mut self) -> Option<&mut http::StreamState> {
+        loop {
+            match self.rx.try_recv() {
+                Ok(s) => self.state = s,
+                Err(mpsc::TryRecvError::Empty) => return Some(&mut self.state),
+                Err(mpsc::TryRecvError::Disconnected) => return None
             }
-            _ => None
-        }.map(|t| *self = Lend::Owned(t));
-
-        match *self {
-            Lend::Owned(ref mut t) => Some(t),
-            Lend::Lent(_) => None
         }
-
-    }
-}
-
-pub struct Lease<T> {
-    inner: Option<T>,
-    tx: mpsc::Sender<T>,
-}
-
-impl<T> Lease<T> {
-    pub fn new(inner: T, tx: mpsc::Sender<T>) -> Lease<T> {
-        Lease {
-            inner: Some(inner),
-            tx: tx,
-        }
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for Lease<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Lease")
-            .field("inner", self.inner.as_ref().unwrap())
-            .finish()
-    }
-}
-
-impl<T> ::std::ops::Deref for Lease<T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        self.inner.as_ref().unwrap()
-    }
-}
-
-impl<T> ::std::ops::DerefMut for Lease<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        self.inner.as_mut().unwrap()
-    }
-}
-
-impl<T> Drop for Lease<T> {
-    fn drop(&mut self) {
-        self.inner.take().map(|t| self.tx.send(t));
     }
 }

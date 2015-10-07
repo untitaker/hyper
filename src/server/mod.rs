@@ -127,7 +127,7 @@ pub use net::{Fresh, Streaming};
 use header::Headers;
 use http;
 use method::Method;
-use net::{HttpsListener, Ssl, HttpsStream};
+//use net::{HttpsListener, Ssl, HttpsStream};
 use status::StatusCode;
 use uri::RequestUri;
 
@@ -222,25 +222,26 @@ impl Server<::mio::tcp::TcpStream> {
     pub fn handle_threads<H: Handler + 'static>(self, handler: H, threads: usize) -> ::Result<Listening> {
         let handler = ::std::sync::Arc::new(handler);
         let mut handles = vec![];
+        let mut ticks = vec![];
         for _ in 0..threads {
             let listener = try!(self.listener.try_clone());
             let handler = handler.clone();
+            let mut tick = Tick::<::mio::tcp::TcpStream, _, _>::new(move |t, _id| {
+                let handler = handler.clone();
+                http::Conn::new(t, conn::Conn::new(handler))
+            });
+            ticks.push(tick.notify());
             handles.push(thread::spawn(move || {
-                let mut tick = Tick::<::mio::tcp::TcpStream, _, _>::new(move |t| {
-                    let handler = handler.clone();
-                    http::Conn::new(t, conn::Conn::new(handler))
-                });
-                //let addr = try!(self.listener.local_addr());
                 tick.accept(listener).unwrap();
                 tick.run().unwrap();
             }));
         }
 
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        unimplemented!();
+        Ok(Listening {
+            addr: try!(self.listener.local_addr()),
+            handles: Some(handles),
+            ticks: Some(ticks),
+        })
     }
 }
 
@@ -248,7 +249,8 @@ impl Server<::mio::tcp::TcpStream> {
 pub struct Listening {
     /// The address this server is listening on.
     pub addr: SocketAddr,
-    //tick: Option<Box<Tick<F, P, T>>>
+    handles: Option<Vec<::std::thread::JoinHandle<()>>>,
+    ticks: Option<Vec<::tick::Notify>>
 }
 
 impl fmt::Debug for Listening {
@@ -261,24 +263,31 @@ impl fmt::Debug for Listening {
 
 impl Drop for Listening {
     fn drop(&mut self) {
-        //let _ = self.tick.take().map(|t| t.run());
+        self.handles.take().map(|handles| {
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
     }
 }
 
-/*
 impl Listening {
     /// Starts the Server, blocking until it is shutdown.
-    pub fn start(self) {
+    pub fn forever(self) {
 
     }
     /// Stop the server from listening to its socket address.
-    pub fn close(&mut self) {
+    pub fn close(mut self) {
         debug!("closing server");
-        self.tick.take();
+        self.handles.take(); // just dump the handles
+        self.ticks.take().map(|ticks| {
+            for tick in ticks {
+                tick.shutdown();
+            }
+        });
     }
 }
 
-*/
 
 /// A handler that can handle incoming requests for a server.
 pub trait Handler: Sync + Send {

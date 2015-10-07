@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use std::io::{Write, BufWriter};
+use std::io::{self, Write, BufWriter};
 
 use url::Url;
 use tick;
@@ -12,6 +12,7 @@ use net::{Fresh, Streaming};
 use status::StatusCode;
 use version::HttpVersion;
 
+use self::read::HttpReader;
 use self::write::HttpWriter;
 
 pub use self::parse::parse;
@@ -33,13 +34,36 @@ fn should_have_response_body(method: &Method, status: u16) -> bool {
 }
 
 #[derive(Debug)]
+pub struct Stream {
+    body: HttpReader<Vec<u8>>,
+}
+
+pub fn stream(incoming: &http::IncomingRequest) -> Stream {
+    let buf = Vec::with_capacity(4096);
+    let body = if incoming.subject.0 == Method::Get || incoming.subject.0 == Method::Head {
+        HttpReader::EmptyReader(buf)
+    } else if let Some(&header::ContentLength(len)) = incoming.headers.get() {
+        HttpReader::SizedReader(buf, len)
+    } else if incoming.headers.has::<header::TransferEncoding>() {
+        todo!("check for Transfer-Encoding: chunked");
+        HttpReader::ChunkedReader(buf, None)
+    } else {
+        HttpReader::EmptyReader(buf)
+    };
+
+    Stream {
+        body: body
+    }
+}
+
+#[derive(Debug)]
 pub struct Transfer<T, S> {
     body: HttpWriter<BufWriter<AsyncWriter>>,
     _type: PhantomData<T>,
     _state: PhantomData<S>,
 }
 
-pub fn transfer<T, S>(trans: http::conn::Lease<tick::Transfer>) -> Transfer<T, S> {
+pub fn transfer<T, S>(trans: tick::Transfer) -> Transfer<T, S> {
     Transfer {
         body: HttpWriter::ThroughWriter(BufWriter::with_capacity(4096, AsyncWriter::new(trans))),
         _type: PhantomData,
@@ -97,7 +121,7 @@ impl Transfer<http::Response, Fresh> {
 }
 
 impl Transfer<http::Request, Fresh> {
-    pub fn start(mut self, method: Method, url: Url, headers: &mut Headers) -> Transfer<http::Request, Streaming> {
+    pub fn start(mut self, method: &Method, url: &Url, headers: &mut Headers) -> Transfer<http::Request, Streaming> {
  
         let mut uri = url.serialize_path().unwrap();
         if let Some(ref q) = url.query {
@@ -110,7 +134,7 @@ impl Transfer<http::Request, Fresh> {
         let _ = write!(&mut self.body, "{} {} {}\r\n", method, uri, version);
 
         debug!("{:#?}", headers);
-        let body = match &method {
+        let body = match method {
             &Method::Get | &Method::Head => {
                 let _ = write!(&mut self.body, "{}\r\n", headers);
                 HttpWriter::EmptyWriter(self.body.into_inner())

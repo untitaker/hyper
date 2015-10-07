@@ -59,8 +59,7 @@ use std::default::Default;
 use std::io::{self, copy, Read};
 use std::iter::Extend;
 
-#[cfg(feature = "timeouts")]
-use std::time::Duration;
+use tick;
 
 use url::UrlParser;
 use url::ParseError as UrlError;
@@ -68,86 +67,54 @@ use url::ParseError as UrlError;
 use header::{Headers, Header, HeaderFormat};
 use header::{ContentLength, Location};
 use method::Method;
-use net::{NetworkConnector, NetworkStream, Fresh};
+use net::{NetworkConnector, Fresh};
 use {Url};
 use Error;
 
-pub use self::pool::Pool;
+use self::pool::Pool;
 pub use self::request::Request;
 pub use self::response::Response;
 
-pub mod pool;
-pub mod request;
-pub mod response;
+mod pool;
+mod request;
+mod response;
 
-use http::Protocol;
-use http::h1::Http11Protocol;
 
 /// A Client to use additional features with Requests.
 ///
 /// Clients can handle things such as: redirect policy, connection pooling.
 pub struct Client {
-    protocol: Box<Protocol + Send + Sync>,
+    connector: Box<NetworkConnector + Send + Sync + 'static>,
+    pool: Pool,
     redirect_policy: RedirectPolicy,
-    #[cfg(feature = "timeouts")]
-    read_timeout: Option<Duration>,
-    #[cfg(feature = "timeouts")]
-    write_timeout: Option<Duration>,
 }
+
+/*
+pub struct ClientConfig {
+
+}
+*/
 
 impl Client {
 
     /// Create a new Client.
     pub fn new() -> Client {
-        Client::with_pool_config(Default::default())
-    }
-
-    /// Create a new Client with a configured Pool Config.
-    pub fn with_pool_config(config: pool::Config) -> Client {
-        Client::with_connector(Pool::new(config))
+        Client::with_connector()
     }
 
     /// Create a new client with a specific connector.
     pub fn with_connector<C, S>(connector: C) -> Client
-    where C: NetworkConnector<Stream=S> + Send + Sync + 'static, S: NetworkStream + Send {
-        Client::with_protocol(Http11Protocol::with_connector(connector))
-    }
-
-    #[cfg(not(feature = "timeouts"))]
-    /// Create a new client with a specific `Protocol`.
-    pub fn with_protocol<P: Protocol + Send + Sync + 'static>(protocol: P) -> Client {
+    where C: NetworkConnector + Send + Sync + 'static {
         Client {
-            protocol: Box::new(protocol),
-            redirect_policy: Default::default(),
-        }
-    }
-
-    #[cfg(feature = "timeouts")]
-    /// Create a new client with a specific `Protocol`.
-    pub fn with_protocol<P: Protocol + Send + Sync + 'static>(protocol: P) -> Client {
-        Client {
-            protocol: Box::new(protocol),
-            redirect_policy: Default::default(),
-            read_timeout: None,
-            write_timeout: None,
+            connector: Box::new(connector),
+            pool: Pool::new(Default::default()),
+            redirect_policy: RedirectPolicy::default(),
         }
     }
 
     /// Set the RedirectPolicy.
     pub fn set_redirect_policy(&mut self, policy: RedirectPolicy) {
         self.redirect_policy = policy;
-    }
-
-    /// Set the read timeout value for all requests.
-    #[cfg(feature = "timeouts")]
-    pub fn set_read_timeout(&mut self, dur: Option<Duration>) {
-        self.read_timeout = dur;
-    }
-
-    /// Set the write timeout value for all requests.
-    #[cfg(feature = "timeouts")]
-    pub fn set_write_timeout(&mut self, dur: Option<Duration>) {
-        self.write_timeout = dur;
     }
 
     /// Build a Get request.
@@ -186,11 +153,17 @@ impl Client {
             headers: None,
         }
     }
+
+    fn stream(&self, transport: T, outgoing: (Method, Url, Headers)) {
+        self.tick.stream(transport)
+    }
 }
 
+/*
 impl Default for Client {
     fn default() -> Client { Client::new() }
 }
+*/
 
 /// Options for an individual Request.
 ///
@@ -201,16 +174,18 @@ pub struct RequestBuilder<'a, U: IntoUrl> {
     url: U,
     headers: Option<Headers>,
     method: Method,
-    body: Option<Body<'a>>,
+    //body: Option<Body<'a>>,
 }
 
 impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
 
+    /*
     /// Set a request body to be sent.
     pub fn body<B: Into<Body<'a>>>(mut self, body: B) -> RequestBuilder<'a, U> {
         self.body = Some(body.into());
         self
     }
+    */
 
     /// Add additional headers to the request.
     pub fn headers(mut self, headers: Headers) -> RequestBuilder<'a, U> {
@@ -240,6 +215,22 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
         let mut url = try!(url.into_url());
         trace!("send {:?} {:?}", method, url);
 
+        let transport = {
+            let (host, port) = try!(get_host_and_port(&url));
+            // let key = key(host, port, url.scheme);
+            // let transfer = match client.pool.remove(key) {
+            //     Some(transfer) => transfer,
+            //     None => try!(client.connector.connect(&host, port, &*url.scheme))
+            // };
+            // transfer.start(method, url, headers)
+            try!(client.connector.connect(&host, port, &*url.scheme))
+        };
+        client.stream(transport, (method, url, headers));
+    }
+
+    fn _send(self) -> ::Result<Response> {
+        let mut url = try!(url.into_url());
+
         let can_have_body = match &method {
             &Method::Get | &Method::Head => false,
             _ => true
@@ -252,10 +243,6 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
         };
 
         loop {
-            let message = {
-                let (host, port) = try!(get_host_and_port(&url));
-                try!(client.protocol.new_message(&host, port, &*url.scheme))
-            };
             let mut req = try!(Request::with_message(method.clone(), url.clone(), message));
             headers.as_ref().map(|headers| req.headers_mut().extend(headers.iter()));
 
@@ -323,6 +310,7 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
     }
 }
 
+/*
 /// An enum of possible body types for a Request.
 pub enum Body<'a> {
     /// A Reader does not necessarily know it's size, so it is chunked.
@@ -381,6 +369,7 @@ impl<'a, R: Read> From<&'a mut R> for Body<'a> {
         Body::ChunkedBody(r)
     }
 }
+*/
 
 /// A helper trait to convert common objects into a Url.
 pub trait IntoUrl {
