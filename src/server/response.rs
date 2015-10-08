@@ -164,15 +164,17 @@ impl Response<Streaming> {
 impl<T: Any> Drop for Response<T> {
     fn drop(&mut self) {
         if TypeId::of::<T>() == TypeId::of::<Fresh>() {
-            let res = unsafe { ptr::read(self) };
-            mem::forget(self);
-            let (version, body, status, mut headers) = res.deconstruct();
-            headers.set(header::ContentLength(0));
+            self.headers.set(header::ContentLength(0));
             let body = unsafe {
+                let body = ptr::read(&self.body);
+                // just did type check, this is indead Response, Fresh.
                 mem::transmute::<_, http::Transfer<http::Response, Fresh>>(body)
             };
-            body.start(version, status, &mut headers);
-        };
+            let body = body.start(self.version, self.status, &mut self.headers);
+            let mut body = unsafe { mem::transmute(body) };
+            mem::swap(&mut self.body, &mut body);
+            mem::forget(body);
+        }
 
         /* TODO: this should happen in http::Transfer
         // AsyncWriter will flush on drop
