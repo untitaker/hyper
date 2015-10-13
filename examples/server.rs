@@ -11,8 +11,8 @@ use hyper::uri::RequestUri::AbsolutePath;
 
 
 fn echo(req: Request, mut res: Response) {
-    match req.uri {
-        AbsolutePath(ref path) => match (&req.method, &path[..]) {
+    match *req.uri() {
+        AbsolutePath(ref path) => match (req.method(), &path[..]) {
             (&Get, "/") | (&Get, "/echo") => {
                 res.send(b"Try POST /echo");
                 return;
@@ -28,7 +28,7 @@ fn echo(req: Request, mut res: Response) {
         }
     };
 
-    if let Some(len) = req.headers.get::<ContentLength>() {
+    if let Some(len) = req.headers().get::<ContentLength>() {
         res.headers_mut().set(*len);
     }
 

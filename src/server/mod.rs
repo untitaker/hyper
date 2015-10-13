@@ -131,8 +131,8 @@ use method::Method;
 use status::StatusCode;
 use uri::RequestUri;
 
-pub mod request;
-pub mod response;
+mod request;
+mod response;
 mod conn;
 
 /// A server can listen on a TCP socket.
@@ -226,7 +226,7 @@ impl Server<::mio::tcp::TcpStream> {
         for _ in 0..threads {
             let listener = try!(self.listener.try_clone());
             let handler = handler.clone();
-            let mut tick = Tick::<::mio::tcp::TcpStream, _, _>::new(move |t, _id| {
+            let mut tick = Tick::<::mio::tcp::TcpStream, _>::new(move |t, _id| {
                 let handler = handler.clone();
                 http::Conn::new(t, conn::Conn::new(handler))
             });

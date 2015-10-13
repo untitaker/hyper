@@ -23,8 +23,7 @@ use version;
 /// so that the server doesn't accidentally leave dangling requests.
 #[derive(Debug)]
 pub struct Response<W: Any = Fresh> {
-    /// The HTTP version of this response.
-    pub version: version::HttpVersion,
+    version: version::HttpVersion,
     // The status code for the request.
     status: status::StatusCode,
     // The outgoing headers on this response.
@@ -34,13 +33,19 @@ pub struct Response<W: Any = Fresh> {
 }
 
 impl<W: Any> Response<W> {
-    /// The status of this response.
-    #[inline]
-    pub fn status(&self) -> status::StatusCode { self.status }
 
     /// The headers of this response.
     #[inline]
     pub fn headers(&self) -> &header::Headers { &self.headers }
+
+    /// The status of this response.
+    #[inline]
+    pub fn status(&self) -> status::StatusCode { self.status }
+
+    /// The HTTP version of this response.
+    #[inline]
+    pub fn version(&self) -> &version::HttpVersion { &self.version }
+
 
     /*
     /// Construct a Response from its constituent parts.
@@ -133,14 +138,13 @@ impl Response<Fresh> {
             body: body
         }
     }
+    /// Get a mutable reference to the Headers.
+    #[inline]
+    pub fn headers_mut(&mut self) -> &mut header::Headers { &mut self.headers }
 
     /// Get a mutable reference to the status.
     #[inline]
     pub fn status_mut(&mut self) -> &mut status::StatusCode { &mut self.status }
-
-    /// Get a mutable reference to the Headers.
-    #[inline]
-    pub fn headers_mut(&mut self) -> &mut header::Headers { &mut self.headers }
 }
 
 
@@ -151,7 +155,7 @@ impl Response<Streaming> {
         self.body.write(data)
     }
 
-    // pub fn drain(&mut self, callback: F) -> Future {}
+    //pub fn drain(&mut self, callback: F) -> Future {}
 
     /// Asynchonously flushes all writing of a response to the client.
     #[inline]
@@ -159,6 +163,8 @@ impl Response<Streaming> {
         // dropped
     }
 }
+
+
 
 
 impl<T: Any> Drop for Response<T> {

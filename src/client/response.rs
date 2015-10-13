@@ -9,58 +9,57 @@ use http::{self, RawStatus};
 use status;
 use version;
 
+pub fn new(incoming: http::IncomingResponse, stream: http::Stream) -> Response {
+    trace!("Response::new");
+    let status = status::StatusCode::from_u16(incoming.subject.0);
+    debug!("version={:?}, status={:?}", incoming.version, status);
+    debug!("headers={:?}", incoming.headers);
+
+    Response {
+        status: status,
+        version: incoming.version,
+        headers: incoming.headers,
+        //url: url,
+        status_raw: incoming.subject,
+        body: stream,
+    }
+
+}
+
 /// A response for a client request to a remote server.
 #[derive(Debug)]
 pub struct Response {
-    /// The status from the server.
-    pub status: status::StatusCode,
-    /// The headers from the server.
-    pub headers: header::Headers,
-    /// The HTTP version of this response from the server.
-    pub version: version::HttpVersion,
-    /// The final URL of this response.
-    pub url: Url,
+    status: status::StatusCode,
+    headers: header::Headers,
+    version: version::HttpVersion,
+    //url: Url,
     status_raw: RawStatus,
+    body: http::Stream,
 }
 
 impl Response {
+    /// Get the headers from the server.
+    #[inline]
+    pub fn headers(&self) -> &header::Headers { &self.headers }
 
-    /*
-    /// Creates a new response from a server.
-    pub fn new(url: Url, stream: Box<NetworkStream + Send>) -> ::Result<Response> {
-        trace!("Response::new");
-        Response::with_message(url, Box::new(Http11Message::with_stream(stream)))
-    }
-
-    /// Creates a new response received from the server on the given `HttpMessage`.
-    pub fn with_message(url: Url, mut message: Box<HttpMessage>) -> ::Result<Response> {
-        trace!("Response::with_message");
-        let ResponseHead { headers, raw_status, version } = match message.get_incoming() {
-            Ok(head) => head,
-            Err(e) => {
-                let _ = message.close_connection();
-                return Err(From::from(e));
-            }
-        };
-        let status = status::StatusCode::from_u16(raw_status.0);
-        debug!("version={:?}, status={:?}", version, status);
-        debug!("headers={:?}", headers);
-
-        Ok(Response {
-            status: status,
-            version: version,
-            headers: headers,
-            url: url,
-            status_raw: raw_status,
-            message: message,
-        })
-    }
-    */
+    /// Get the status from the server.
+    #[inline]
+    pub fn status(&self) -> &status::StatusCode { &self.status }
 
     /// Get the raw status code and reason.
     #[inline]
-    pub fn status_raw(&self) -> &RawStatus {
-        &self.status_raw
+    pub fn status_raw(&self) -> &RawStatus { &self.status_raw }
+
+    /// Get the final URL of this response.
+    #[inline]
+    //pub fn url(&self) -> &Url { &self.url }
+
+    /// Get the HTTP version of this response from the server.
+    #[inline]
+    pub fn version(&self) -> &version::HttpVersion { &self.version }
+
+    pub fn stream<R: http::Read + Send + 'static>(mut self, r: R) {
+        self.body.read(Box::new(r));
     }
 }
 

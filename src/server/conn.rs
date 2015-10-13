@@ -5,7 +5,7 @@ use httparse;
 use http;
 use net;
 
-use super::{Handler, Request, Response};
+use super::{Handler, request, Request, Response};
 
 pub struct Conn<H: Handler> {
     handler: Arc<H>
@@ -24,7 +24,7 @@ impl<H: Handler> http::Handler for Conn<H> {
     type Outgoing = http::Response;
 
     fn on_incoming(&mut self, incoming: http::IncomingRequest, stream: http::Stream,  transfer: http::Transfer<http::Response, net::Fresh>) {
-        let request = Request::new(incoming, stream);
+        let request = request::new(incoming, stream);
         let response = Response::new(transfer);
         self.handler.handle(request, response);
     }

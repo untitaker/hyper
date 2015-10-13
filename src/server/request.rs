@@ -12,41 +12,50 @@ use header::Headers;
 use http::{IncomingRequest, Incoming, Stream};
 use uri::RequestUri;
 
+pub fn new(incoming: IncomingRequest, stream: Stream) -> Request {
+    let Incoming { version, subject: (method, uri), headers } = incoming;
+    debug!("Request Line: {:?} {:?} {:?}", method, uri, version);
+    debug!("{:#?}", headers);
+
+    Request {
+        //remote_addr: addr,
+        method: method,
+        uri: uri,
+        headers: headers,
+        version: version,
+        stream: stream,
+    }
+}
+
 /// A request bundles several parts of an incoming `NetworkStream`, given to a `Handler`.
 #[derive(Debug)]
 pub struct Request {
-    /// The IP address of the remote connection.
-    //pub remote_addr: SocketAddr,
-    /// The `Method`, such as `Get`, `Post`, etc.
-    pub method: Method,
-    /// The headers of the incoming request.
-    pub headers: Headers,
-    /// The target request-uri for this request.
-    pub uri: RequestUri,
-    /// The version of HTTP for this request.
-    pub version: HttpVersion,
-
+    // The IP address of the remote connection.
+    //remote_addr: SocketAddr,
+    method: Method,
+    headers: Headers,
+    uri: RequestUri,
+    version: HttpVersion,
     stream: Stream,
 }
 
 
 impl Request {
-    /// Create a new Request, reading the StartLine and Headers so they are
-    /// immediately useful.
-    pub fn new(incoming: IncomingRequest, stream: Stream) -> Request {
-        let Incoming { version, subject: (method, uri), headers } = incoming;
-        debug!("Request Line: {:?} {:?} {:?}", method, uri, version);
-        debug!("{:#?}", headers);
+    /// The `Method`, such as `Get`, `Post`, etc.
+    #[inline]
+    pub fn method(&self) -> &Method { &self.method }
 
-        Request {
-            //remote_addr: addr,
-            method: method,
-            uri: uri,
-            headers: headers,
-            version: version,
-            stream: stream,
-        }
-    }
+    /// The headers of the incoming request.
+    #[inline]
+    pub fn headers(&self) -> &Headers { &self.headers }
+
+    /// The target request-uri for this request.
+    #[inline]
+    pub fn uri(&self) -> &RequestUri { &self.uri }
+
+    /// The version of HTTP for this request.
+    #[inline]
+    pub fn version(&self) -> &HttpVersion { &self.version }
 
     /*
     pub fn path(&self) -> Option<&str> {

@@ -59,6 +59,7 @@ use std::default::Default;
 use std::io::{self, copy, Read};
 use std::iter::Extend;
 
+use httparse; //TODO: this is leaked out of the http module
 use tick;
 
 use url::UrlParser;
@@ -66,8 +67,9 @@ use url::ParseError as UrlError;
 
 use header::{Headers, Header, HeaderFormat};
 use header::{ContentLength, Location};
+use http;
 use method::Method;
-use net::{NetworkConnector, Fresh};
+use net::{NetworkConnector, Fresh, DefaultConnector};
 use {Url};
 use Error;
 
@@ -83,9 +85,9 @@ mod response;
 /// A Client to use additional features with Requests.
 ///
 /// Clients can handle things such as: redirect policy, connection pooling.
-pub struct Client {
-    connector: Box<NetworkConnector + Send + Sync + 'static>,
-    pool: Pool,
+pub struct Client<C: NetworkConnector> {
+    connector: C,
+    tick: tick::Tick<C::Stream, Factory>,
     redirect_policy: RedirectPolicy,
 }
 
@@ -95,19 +97,18 @@ pub struct ClientConfig {
 }
 */
 
-impl Client {
+impl<C: NetworkConnector> Client<C> {
 
     /// Create a new Client.
-    pub fn new() -> Client {
-        Client::with_connector()
+    pub fn new() -> Client<DefaultConnector> {
+        Client::with_connector(DefaultConnector::default())
     }
 
     /// Create a new client with a specific connector.
-    pub fn with_connector<C, S>(connector: C) -> Client
-    where C: NetworkConnector + Send + Sync + 'static {
+    pub fn with_connector(connector: C) -> Client<C> {
         Client {
-            connector: Box::new(connector),
-            pool: Pool::new(Default::default()),
+            connector: connector,
+            tick: tick::Tick::new(Factory),
             redirect_policy: RedirectPolicy::default(),
         }
     }
@@ -118,66 +119,84 @@ impl Client {
     }
 
     /// Build a Get request.
-    pub fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder<U> {
+    pub fn get<U: IntoUrl>(&self, url: U) -> RequestBuilder<C, U> {
         self.request(Method::Get, url)
     }
 
     /// Build a Head request.
-    pub fn head<U: IntoUrl>(&self, url: U) -> RequestBuilder<U> {
+    pub fn head<U: IntoUrl>(&self, url: U) -> RequestBuilder<C, U> {
         self.request(Method::Head, url)
     }
 
     /// Build a Post request.
-    pub fn post<U: IntoUrl>(&self, url: U) -> RequestBuilder<U> {
+    pub fn post<U: IntoUrl>(&self, url: U) -> RequestBuilder<C, U> {
         self.request(Method::Post, url)
     }
 
     /// Build a Put request.
-    pub fn put<U: IntoUrl>(&self, url: U) -> RequestBuilder<U> {
+    pub fn put<U: IntoUrl>(&self, url: U) -> RequestBuilder<C, U> {
         self.request(Method::Put, url)
     }
 
     /// Build a Delete request.
-    pub fn delete<U: IntoUrl>(&self, url: U) -> RequestBuilder<U> {
+    pub fn delete<U: IntoUrl>(&self, url: U) -> RequestBuilder<C, U> {
         self.request(Method::Delete, url)
     }
 
 
     /// Build a new request using this Client.
-    pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder<U> {
+    pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder<C, U> {
         RequestBuilder {
             client: self,
             method: method,
             url: url,
-            body: None,
+            //body: None,
             headers: None,
         }
     }
 
+    /*
     fn stream(&self, transport: T, outgoing: (Method, Url, Headers)) {
         self.tick.stream(transport)
     }
+    */
 }
 
-/*
-impl Default for Client {
-    fn default() -> Client { Client::new() }
+struct Factory;
+
+impl tick::ProtocolFactory for Factory {
+    type Proto = http::Conn<Handler>;
+    fn create(&mut self, transfer: tick::Transfer, id: tick::Id) -> Self::Proto {
+        trace!("Factory.create {:?}", id);
+        http::Conn::new(transfer, Handler)
+    }
 }
-*/
+
+struct Handler;
+
+impl http::Handler for Handler {
+    type Incoming = httparse::Response<'static, 'static>;
+    type Outgoing = http::Request;
+
+    fn on_incoming(&mut self, incoming: http::IncomingResponse, stream: http::Stream,
+                  transfer: http::Transfer<http::Request, Fresh>) {
+        let resp = response::new(incoming, stream);
+    }
+}
 
 /// Options for an individual Request.
 ///
 /// One of these will be built for you if you use one of the convenience
 /// methods, such as `get()`, `post()`, etc.
-pub struct RequestBuilder<'a, U: IntoUrl> {
-    client: &'a Client,
+pub struct RequestBuilder<'a, C: NetworkConnector + 'a, U: IntoUrl> {
+    client: &'a Client<C>,
     url: U,
     headers: Option<Headers>,
     method: Method,
     //body: Option<Body<'a>>,
 }
 
-impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
+impl<'a, C: NetworkConnector, U: IntoUrl> RequestBuilder<'a, C, U> {
 
     /*
     /// Set a request body to be sent.
@@ -188,13 +207,13 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
     */
 
     /// Add additional headers to the request.
-    pub fn headers(mut self, headers: Headers) -> RequestBuilder<'a, U> {
+    pub fn headers(mut self, headers: Headers) -> RequestBuilder<'a, C, U> {
         self.headers = Some(headers);
         self
     }
 
     /// Add an individual new header to the request.
-    pub fn header<H: Header + HeaderFormat>(mut self, header: H) -> RequestBuilder<'a, U> {
+    pub fn header<H: Header + HeaderFormat>(mut self, header: H) -> RequestBuilder<'a, C, U> {
         {
             let mut headers = match self.headers {
                 Some(ref mut h) => h,
@@ -210,8 +229,21 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
     }
 
     /// Execute this request and receive a Response back.
-    pub fn send(self) -> ::Result<Response> {
-        let RequestBuilder { client, method, url, headers, body } = self;
+    pub fn send<F>(self, cb: F) where F: FnOnce(::Result<Response>) {
+        let req = match self.request() {
+            Ok(req) => req,
+            Err(e) => {
+                cb(Err(e));
+                return;
+            }
+        };
+
+        let streaming = req.start();
+        //streaming.send(cb);
+    }
+
+    fn request(self) -> ::Result<Request<Fresh>> {
+        let RequestBuilder { client, method, url, headers } = self;
         let mut url = try!(url.into_url());
         trace!("send {:?} {:?}", method, url);
 
@@ -225,9 +257,15 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
             // transfer.start(method, url, headers)
             try!(client.connector.connect(&host, port, &*url.scheme))
         };
-        client.stream(transport, (method, url, headers));
+        //let id = try!(client.tick.stream(transport));
+        //let mut req = try!(request::new(method, url, transfer));
+        //req.headers_mut().extend(headers);
+        //Ok(req)
+
+        unimplemented!()
     }
 
+    /*
     fn _send(self) -> ::Result<Response> {
         let mut url = try!(url.into_url());
 
@@ -308,6 +346,7 @@ impl<'a, U: IntoUrl> RequestBuilder<'a, U> {
             }
         }
     }
+    */
 }
 
 /*

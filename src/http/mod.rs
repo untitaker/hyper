@@ -99,7 +99,7 @@ impl fmt::Debug for Stream {
 
 enum StreamState {
     Paused,
-    Reading(Box<Read + Send +'static>)
+    Reading(Box<Read + Send +'static>),
 }
 
 impl Stream {

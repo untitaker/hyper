@@ -53,7 +53,7 @@ impl<H: Handler> Protocol for Conn<H> {
                         if buf.len() >= MAX_BUFFER_SIZE {
                             //TODO: Handler.on_too_large_error()
                             debug!("MAX_BUFFER_SIZE reached, closing");
-                            self.transfer.close();
+                            self.transfer.abort();
                             Action::State(State::Closed)
                         } else {
                             Action::Nothing
@@ -64,7 +64,7 @@ impl<H: Handler> Protocol for Conn<H> {
                         if data.starts_with(h2_init) {
                             trace!("HTTP/2 request!");
                             //TODO: self.state = State::Http2(h2::conn());
-                            self.transfer.close();
+                            self.transfer.abort();
                             Action::State(State::Closed)
                         } else {
                             //TODO: match on error to send proper response
@@ -116,7 +116,7 @@ impl<H: Handler> Protocol for Conn<H> {
     }
 
     fn on_eof(&mut self) {
-        trace!("unhandled eof");
+        trace!("read eof");
     }
 
     fn on_end(&mut self, err: Option<::tick::Error>) {
@@ -131,16 +131,6 @@ enum Action {
     State(State),
     OnData(State),
     Nothing
-}
-
-pub trait Handler {
-    type Incoming: Parse;
-    type Outgoing;
-    //fn on_outgoing(&mut self, transfer: http::Transfer<Self::Outgoing, Fresh>);
-    fn on_incoming(&mut self,
-                   incoming: Incoming<<Self::Incoming as Parse>::Subject>,
-                   stream: http::Stream,
-                   transfer: http::Transfer<Self::Outgoing, Fresh>);
 }
 
 enum State {
@@ -167,3 +157,15 @@ impl StreamRx {
         }
     }
 }
+
+pub trait Handler {
+    type Incoming: Parse;
+    type Outgoing;
+    //fn on_outgoing(&mut self, transfer: http::Transfer<Self::Outgoing, Fresh>);
+    fn on_incoming(&mut self,
+                   incoming: Incoming<<Self::Incoming as Parse>::Subject>,
+                   stream: http::Stream,
+                   transfer: http::Transfer<Self::Outgoing, Fresh>);
+}
+
+
