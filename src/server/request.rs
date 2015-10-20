@@ -67,31 +67,6 @@ impl Request {
     }
     */
 
-    /*
-    pub fn read(mut self) -> Future<(Option<Vec<u8>>, Request), ::Error> {
-        let (promise, future) = Future::pair();
-        let buf = vec![];
-        let mut env = Some((self, buf, promise));
-        env.as_mut().unwrap().0.stream.read(Box::new(move |res: ::Result<Option<&[u8]>>| {
-            let (req, mut buf, promise) = env.take().unwrap();
-            match res {
-                Ok(Some(data)) => {
-                    buf.extend(data);
-                    promise.complete((Some(buf), req));
-                },
-                Ok(None) => {
-                    promise.complete((None, req));
-                }
-                Err(e) => {
-                    promise.fail(e);
-                }
-            }
-            false
-        }));
-        future
-    }
-    */
-
     pub fn stream<S: ::http::Read + Send + 'static>(mut self, stream: S) {
         self.stream.read(Box::new(stream));
     }

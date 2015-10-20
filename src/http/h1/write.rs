@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::mem;
 use std::ptr;
 
-use self::HttpWriter::{ChunkedWriter, SizedWriter, EmptyWriter, ThroughWriter};
+use self::HttpWriter::{ChunkedWriter, SizedWriter, ThroughWriter};
 
 /// Writers to handle different Transfer-Encodings.
 pub enum HttpWriter<W: Write> {
@@ -15,8 +15,6 @@ pub enum HttpWriter<W: Write> {
     ///
     /// Enforces that the body is not longer than the Content-Length header.
     SizedWriter(W, u64),
-    /// A writer that should not write any body.
-    EmptyWriter(W),
 }
 
 impl<W: Write> HttpWriter<W> {
@@ -28,13 +26,13 @@ impl<W: Write> HttpWriter<W> {
                 ThroughWriter(ref w) => w,
                 ChunkedWriter(ref w) => w,
                 SizedWriter(ref w, _) => w,
-                EmptyWriter(ref w) => w,
             });
             mem::forget(self);
             w
         }
     }
 
+    /*
     /// Access the inner Writer.
     #[inline]
     pub fn get_ref<'a>(&'a self) -> &'a W {
@@ -42,7 +40,6 @@ impl<W: Write> HttpWriter<W> {
             ThroughWriter(ref w) => w,
             ChunkedWriter(ref w) => w,
             SizedWriter(ref w, _) => w,
-            EmptyWriter(ref w) => w,
         }
     }
 
@@ -56,7 +53,6 @@ impl<W: Write> HttpWriter<W> {
             ThroughWriter(ref mut w) => w,
             ChunkedWriter(ref mut w) => w,
             SizedWriter(ref mut w, _) => w,
-            EmptyWriter(ref mut w) => w,
         }
     }
 
@@ -76,6 +72,7 @@ impl<W: Write> HttpWriter<W> {
             Err(e) => Err(EndError(e, self))
         }
     }
+    */
 }
 
 #[derive(Debug)]
@@ -113,12 +110,6 @@ impl<W: Write> Write for HttpWriter<W> {
                     Ok(len as usize)
                 }
             },
-            EmptyWriter(..) => {
-                if !msg.is_empty() {
-                    error!("Cannot include a body with this kind of message");
-                }
-                Ok(0)
-            }
         }
     }
 
@@ -128,7 +119,6 @@ impl<W: Write> Write for HttpWriter<W> {
             ThroughWriter(ref mut w) => w.flush(),
             ChunkedWriter(ref mut w) => w.flush(),
             SizedWriter(ref mut w, _) => w.flush(),
-            EmptyWriter(ref mut w) => w.flush(),
         }
     }
 }
@@ -152,7 +142,6 @@ impl<W: Write> fmt::Debug for HttpWriter<W> {
             ThroughWriter(_) => write!(fmt, "ThroughWriter"),
             ChunkedWriter(_) => write!(fmt, "ChunkedWriter"),
             SizedWriter(_, rem) => write!(fmt, "SizedWriter(remaining={:?})", rem),
-            EmptyWriter(_) => write!(fmt, "EmptyWriter"),
         }
     }
 }

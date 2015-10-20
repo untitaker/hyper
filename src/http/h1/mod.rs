@@ -41,14 +41,14 @@ pub struct Stream {
 pub fn stream(incoming: &http::IncomingRequest) -> Stream {
     let buf = Vec::with_capacity(4096);
     let body = if incoming.subject.0 == Method::Get || incoming.subject.0 == Method::Head {
-        HttpReader::EmptyReader(buf)
+        HttpReader::SizedReader(buf, 0)
     } else if let Some(&header::ContentLength(len)) = incoming.headers.get() {
         HttpReader::SizedReader(buf, len)
     } else if incoming.headers.has::<header::TransferEncoding>() {
         todo!("check for Transfer-Encoding: chunked");
         HttpReader::ChunkedReader(buf, None)
     } else {
-        HttpReader::EmptyReader(buf)
+        HttpReader::SizedReader(buf, 0)
     };
 
     Stream {
@@ -137,7 +137,7 @@ impl Transfer<http::Request, Fresh> {
         let body = match method {
             &Method::Get | &Method::Head => {
                 let _ = write!(&mut self.body, "{}\r\n", headers);
-                HttpWriter::EmptyWriter(self.body.into_inner())
+                HttpWriter::SizedWriter(self.body.into_inner(), 0)
             },
             _ => {
                 let mut chunked = true;
@@ -259,7 +259,7 @@ impl HttpMessage for Http11Message {
         // 6. Not Client.
         // 7. Read till EOF.
         self.reader = Some(if is_empty {
-            EmptyReader(stream)
+            SizedReader(stream, 0)
         } else {
              if let Some(&TransferEncoding(ref codings)) = headers.get() {
                 if codings.last() == Some(&Chunked) {

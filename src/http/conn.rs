@@ -1,5 +1,3 @@
-use std::fmt;
-use std::io::Cursor;
 use std::sync::mpsc;
 
 use tick::{self, Protocol};
@@ -60,6 +58,7 @@ impl<H: Handler> Protocol for Conn<H> {
                         }
                     },
                     Err(e) => {
+                        trace!("parsing error: {:?}", e);
                         let h2_init = b"PRI * HTTP/2";
                         if data.starts_with(h2_init) {
                             trace!("HTTP/2 request!");

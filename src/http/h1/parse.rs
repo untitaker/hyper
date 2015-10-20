@@ -12,6 +12,7 @@ use version::HttpVersion::{Http10, Http11};
 
 const MAX_HEADERS: usize = 100;
 
+/*
 /// Parses a request into an Incoming message head.
 #[inline]
 pub fn parse_request(buf: &[u8]) -> ParseResult<(Method, RequestUri)> {
@@ -23,6 +24,7 @@ pub fn parse_request(buf: &[u8]) -> ParseResult<(Method, RequestUri)> {
 pub fn parse_response(buf: &[u8]) -> ParseResult<RawStatus> {
     parse::<httparse::Response, RawStatus>(buf)
 }
+*/
 
 pub fn parse<T: Parse<Subject=I>, I>(buf: &[u8]) -> ParseResult<I> {
     if buf.len() == 0 {

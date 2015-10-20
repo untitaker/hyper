@@ -2,7 +2,7 @@ use std::cmp;
 use std::fmt;
 use std::io::{self, Read};
 
-use self::HttpReader::{SizedReader, ChunkedReader, EofReader, EmptyReader};
+use self::HttpReader::{SizedReader, ChunkedReader, EofReader};
 
 /// Readers to handle different Transfer-Encodings.
 ///
@@ -28,20 +28,16 @@ pub enum HttpReader<R> {
     /// > reliably; the server MUST respond with the 400 (Bad Request)
     /// > status code and then close the connection.
     EofReader(R),
-    /// A Reader used for messages that should never have a body.
-    ///
-    /// See https://tools.ietf.org/html/rfc7230#section-3.3.3
-    EmptyReader(R),
 }
 
 impl<R: Read> HttpReader<R> {
+    /*
     /// Unwraps this HttpReader and returns the underlying Reader.
     pub fn into_inner(self) -> R {
         match self {
             SizedReader(r, _) => r,
             ChunkedReader(r, _) => r,
             EofReader(r) => r,
-            EmptyReader(r) => r,
         }
     }
 
@@ -51,7 +47,6 @@ impl<R: Read> HttpReader<R> {
             SizedReader(ref r, _) => r,
             ChunkedReader(ref r, _) => r,
             EofReader(ref r) => r,
-            EmptyReader(ref r) => r,
         }
     }
 
@@ -61,19 +56,18 @@ impl<R: Read> HttpReader<R> {
             SizedReader(ref mut r, _) => r,
             ChunkedReader(ref mut r, _) => r,
             EofReader(ref mut r) => r,
-            EmptyReader(ref mut r) => r,
         }
     }
 
     pub fn has_body(&self) -> bool {
         match *self {
-            EmptyReader(..) |
             SizedReader(_, 0) |
             ChunkedReader(_, Some(0)) => false,
             // specifically EofReader is always true
             _ => true
         }
     }
+    */
 }
 
 impl<R> fmt::Debug for HttpReader<R> {
@@ -83,7 +77,6 @@ impl<R> fmt::Debug for HttpReader<R> {
             ChunkedReader(_, None) => write!(fmt, "ChunkedReader(chunk_remaining=unknown)"),
             ChunkedReader(_, Some(rem)) => write!(fmt, "ChunkedReader(chunk_remaining={:?})", rem),
             EofReader(_) => write!(fmt, "EofReader"),
-            EmptyReader(_) => write!(fmt, "EmptyReader"),
         }
     }
 }
@@ -149,7 +142,6 @@ impl<R: Read> Read for HttpReader<R> {
                 trace!("eofread: {:?}", r);
                 r
             },
-            EmptyReader(_) => Ok(0)
         }
     }
 }

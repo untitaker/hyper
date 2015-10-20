@@ -33,22 +33,23 @@ fn echo(req: Request, mut res: Response) {
     }
 
     req.stream(Echo(res.start()));
-}
 
-struct Echo(hyper::server::Response<hyper::Streaming>);
 
-impl hyper::Read for Echo {
-    fn on_data(&mut self, data: &[u8]) {
-        println!("data {:?}", ::std::str::from_utf8(data));
-        self.0.write(data);
-    }
+    struct Echo(hyper::server::Response<hyper::Streaming>);
 
-    fn on_error(&mut self, error: hyper::Error) {
-        println!("error {:#?}", error);
-    }
+    impl hyper::Read for Echo {
+        fn on_data(&mut self, data: &[u8]) {
+            //println!("data {:?}", ::std::str::from_utf8(data));
+            self.0.write(data);
+        }
 
-    fn on_eof(&mut self) {
-        println!("eof")
+        fn on_eof(&mut self) {
+        
+        }
+
+        fn on_error(&mut self, error: hyper::Error) {
+            println!("error {:#?}", error);
+        }
     }
 }
 
