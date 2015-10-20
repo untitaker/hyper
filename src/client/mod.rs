@@ -85,7 +85,7 @@ mod response;
 /// A Client to use additional features with Requests.
 ///
 /// Clients can handle things such as: redirect policy, connection pooling.
-pub struct Client<C: NetworkConnector> {
+pub struct Client<C: NetworkConnector = DefaultConnector> {
     connector: C,
     tick: tick::Tick<C::Stream, Factory>,
     redirect_policy: RedirectPolicy,
